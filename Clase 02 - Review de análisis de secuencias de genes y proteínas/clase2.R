@@ -19,21 +19,7 @@ install.packages("ape", dependencies = T)
 library(seqinr)
 library(ape)
 
-## 1. Cargando una secuencia manualmente ====
 
-path <- "C:/Users/pitca/Documents/2021-1/Bioinformatica_Avanzada/Marcelo/bioinf_avanza/Clases/Clase2y3/data/sequence.fasta"
-actin.necator <- seqinr::read.fasta(path, seqtype = "AA")
-
-
-attr(actin.necator$ETN76030.1,"Annot")
-tabla <- table(actin.necator$ETN76030.1)
-sort(table(actin.necator$ETN76030.1))
-sort(table(actin.necator$ETN76030.1),decreasing = T)
-plot(sort(table(actin.necator$ETN76030.1),decreasing = T), col=colores1)
-barplot(sort(table(actin.necator$ETN76030.1),decreasing = T), col=colores1)
-longitud <- length(actin.necator$ETN76030.1)
-freqre <- tabla/longitud
-barplot(freqre)
 
 #2. Cargando multiples secuencias ====
 
@@ -43,7 +29,7 @@ app.Hs <- seqinr::read.fasta(path, as.string = T, seqtype = "AA")
 #3. Importando secuencias desde R ====
 
 seqinr::choosebank(infobank = T)
-seqinr::choosebank("swissprot")
+seqinr::choosebank("genbank")
 app2 <- query("app2", "K=Amyloid AND sp=Homo sapiens")
 summary(app2)
 app2$call
@@ -51,7 +37,7 @@ app2$nelem
 app2$req
 app2$req[[2]]
 app2$req[2]
-seqinr::getSequence(app2$req[[2]])
+seqinr::getSequence(app2$req[[2]],as.string=F)
 
 #4. Usando ape ====
 
@@ -155,8 +141,8 @@ gdPlot(list(makeTitle("IL6"),
             makeGenomeAxis()))
 
 #Agregas anotaciones para se?alar cierta regiones de un gen
-customann<-makeAnnotationTrack(start=c(25980550,26020650,26080850),
-                               end=c(26000550,26025650,26085850),
+customann<-makeAnnotationTrack(start=c(22727000,22730000,22730500),
+                               end=c(22727300,22730200,22730800),
                                feature=c('bind','bind','del'), dp=DisplayPars(bind = 'gray',del='black'))
 gdPlot(list(makeTitle("Human amyloid beta precursor gene"),
             makeIdeogram(chromosome = 21), gene, transcript,
