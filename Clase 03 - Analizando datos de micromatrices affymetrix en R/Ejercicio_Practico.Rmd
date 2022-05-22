@@ -1,125 +1,207 @@
----
-title: "Ejercicio Práctico - THE USE AND ANALYSIS OF MICROARRAY DATA"
-author: "Dongo Mendoza, Nathaly"
-date: "13/6/2021"
-output: html_document
----
-## Importar librerías
-```{r}
+
+#Paquetes necesarios
+```{r, error=FALSE, warning=FALSE, results='hide'}
 library(GEOquery)
-library(Biobase)
-library(multiClust)
-library(preprocessCore)
-library(ctc)
-library(gplots)
-library(dendextend)
-library(graphics)
-library(grDevices)
-library(amap)
-library(survival)
+library(dplyr)
+library(limma)
+library(pheatmap)
+library(ggplot2)
+library(reshape)
+library(kohonen)
+library(RColorBrewer)
+library(ggrepel)
+library(ergm)
+library(mixOmics)
+library(lumi) #Biocmanager
 ```
 
-```{r  include=FALSE}
-# Obtain GSE series matrix file from GEO website using getGEO function
-gse <- getGEO(GEO="GSE2034")
-    
-# Save the gene expression matrix as an object
-data.gse <- exprs(gse[[1]])
-    
-# Save the patient clinical data to an object
-pheno <- pData(phenoData(gse[[1]]))
-    
-# Write the gene expression and clinical data to text files
-WriteMatrixToFile(tmpMatrix=data.gse, tmpFileName="GSE2034.expression.txt",
-    blnRowNames=TRUE, blnColNames=TRUE)
-    
-WriteMatrixToFile(tmpMatrix=pheno, tmpFileName="GSE2034.clinical.txt",
-    blnRowNames=TRUE, blnColNames=TRUE)
+#Importar la data
+```{r}
+my_id <- "GSE33126"
+gse <- getGEO(my_id)
+gse <- gse[[1]]
+```
+Algunas funciones que nos ayudarán más adelante y que debemos recordar
+son: 
+```{r, results =FALSE }
+pData(gse) ## información de las muestras
+fData(gse) ## la antoación de genes
+exprs(gse) ## la expresión de genes
+```
+
+#Normalizar la data 
+Data antes de ser normalizada 
+```{r}
+summary(exprs(gse))
+boxplot(exprs(gse),outline=FALSE, las=3 )
+```
+
+Data despues de ser normalizada
+```{r}
+gse_rsn<-gse
+exprs(gse) <- log2(exprs(gse))
+exprs(gse_rsn)<-rsn(exprs(gse))
+boxplot(exprs(gse),outline=FALSE, las=3)
+boxplot(exprs(gse_rsn),outline=FALSE, las=3)
+```
+
+
+#Clustering 
+
+Heatmap de analisis de correlación
+```{r}
+sampleInfo <- pData(gse)
+
+sampleInfo <- sampleInfo[,c("source_name_ch1","characteristics_ch1.1")]
+
+corMatrix <- cor(exprs(gse),use="complete.obs")
+pheatmap(corMatrix, annotation_col=sampleInfo)
+```
+
+PCA component analysis 
+```{r}
+#PCA
+sampleInfo$group=sampleInfo$source_name_ch1
+sampleInfo$patient=sampleInfo$characteristics_ch1.1
+
+pca <- prcomp(t(exprs(gse)))
+
+cbind(sampleInfo, pca$x) %>% 
+ggplot(aes(x = PC1, y=PC2, col=group,label=paste("Patient", patient))) + geom_point() + geom_text_repel()
+
+```
+
+#Expresión diferencial de Genes
+```{r}
+design <- model.matrix(~0+sampleInfo$group)
+head(design)
+```
+```{r}
+colnames(design) <- c("Normal","Tumour")
+## Calcular los niveles de expresión 
+cutoff <- median(exprs(gse))
+is_expressed <- exprs(gse) > cutoff
+
+## Mantener los genes que sean mayores que en dos muestras
+keep <- rowSums(is_expressed) > 2
+```
+
+La función  lmFit se utiliza para ajustar el modelo a los datos. El resultado de lo cual es estimar el nivel de expresión en cada uno de los grupos que especificamos.
+```{r}
+fit <- lmFit(exprs(gse), design)
+head(fit$coefficients)
+```
+Para realizar el análisis diferencial tenemos que definir el contraste que nos interesa. En nuestro caso solo tenemos dos grupos y un contraste de interés. Se pueden definir múltiples contrastes en la makeContrasts. 
+
+```{r}
+contrasts <- makeContrasts(Tumour - Normal, levels=design)
+fit2 <- contrasts.fit(fit, contrasts)
+fit2 <- eBayes(fit2)
+topTable(fit2)
+```
+
+
+Anotación de genes
+```{r}
+anno <- fData(gse)
+names(anno)
+
+anno <- anno[,c("Symbol","Entrez_Gene_ID","Chromosome","Cytoband")]
+fit2$genes <- anno
+topTable(fit2)
 ```
 
 
 ```{r}
-# Quantile normalization of the dataset
-data.norm <- normalize.quantiles(data.gse, copy=FALSE)
+full_results <- topTable(fit2, number=Inf)
+full_results <- tibble::rownames_to_column(full_results,"ID")
+p_cutoff <- 0.05
+fc_cutoff <- 1
 
-# Log2 scaling of the dataset
-data.log <- t(apply(data.norm, 1, log2))
+## 20 genes top
+topN <- 20
+##
+ids_of_interest <- mutate(full_results, Rank = 1:n()) %>% 
+  filter(Rank < topN) %>% 
+  pull(ID)
 
-# Write the gene expression and clinical data to text files
-WriteMatrixToFile(tmpMatrix=data.log,
-    tmpFileName="GSE2034.normalized.expression.txt",
-    blnRowNames=TRUE, blnColNames=TRUE)
+gene_names <- mutate(full_results, Rank = 1:n()) %>% 
+  filter(Rank < topN) %>% 
+  pull(Symbol) 
 ```
 
-
+#Hierarchical Clustering 
 ```{r}
-# Obtain clinical outcome file
-clin_file <- system.file("extdata", "GSE2034-RFS-clinical-outcome.txt",
-    package="multiClust")
+gene_matrix <- exprs(gse)[ids_of_interest,]
 
-# Load in survival information file
-clinical <- read.delim2(file=clin_file, header=TRUE)
+pheatmap(gene_matrix,
+         labels_row = gene_names)
 
-# Display first few rows of the file
-clinical[1:5, 1:2]
-
-# Column one represents the survival time in months
-# Column two represents the relapse free survival (RFS) even
+pheatmap(gene_matrix,
+         labels_row = gene_names,
+         scale="row")
 ```
-
-
+#Neighboor Joinning 
 ```{r}
-# Call the number_clusters function
-# data.exp is the original expression matrix object outputted from
-# the input_file function
-# User specifies that samples will be separated into 3 clusters 
-# with the "Fixed" argument
-cluster_num <- number_clusters(data.exp=data.exprs, Fixed=3,
-    gap_statistic=NULL)
-```
+rownames(gene_matrix)<-gene_names
+gene_matrix<-t(gene_matrix)
+X <- gene_matrix[c(1,3,5,7,9,11,13,15,17),1:3]
+Y <- gene_matrix[c(2,4,6,8,10,12,14,16,18),10:13]
+nutri.res <- rcc(X, Y,ncomp = 3, method = 'shrinkage')
 
+## Copiar en la consola Guardarlo como imaen 
+jpeg('example1-network.jpeg', res = 600, width = 4000, height = 4000)
+network(nutri.res)
+dev.off()
+```
+#PCA para genes
 ```{r}
-# Obtain gene expression matrix
-exp_file <- system.file("extdata", "GSE2034.normalized.expression.txt", package= "multiClust")
+#PCA 
+mostDEgene.long<-data.frame(type=rep(c("tumor","normal"),171),
+                            gene=rep(gene_names,each=18), 
+                            mean=as.vector(gene_matrix))
 
-# Load the gene expression matrix 
-data.exprs <- input_file(input=exp_file)
+mostDEgene.long <- cast(mostDEgene.long, gene ~ type, value.var = mean, fun.aggregate = "mean")  
+# set up for PCA
+scale_data <- as.matrix(t(scale(t(mostDEgene.long[c(2:3)]))))
 
-# Call the number_clusters function
-# data.exp is the original expression matrix object ouputted from
-# the input_file function
-# User chooses the gap_statistic option by making gap_statistic equal TRUE
-# The Fixed argument is also set to NULL
-cluster_num <- number_clusters(data.exp=data.exprs, Fixed=NULL,
-    gap_statistic=TRUE)
+#Principle Component Analysis
+pca <- prcomp(scale_data, scale=TRUE) 
+summary(pca) 
+
+pca.scores <- data.frame(pca$x)
+
+data.val <- cbind(mostDEgene.long, scale_data, pca.scores) 
+head(data.val)
+
+p <- ggplot(data.val, aes(PC1, PC2)) 
+p + geom_point() +
+  geom_text(aes(PC1, PC2, label = (data.val[,1])))
 ```
 
+#SOM
 ```{r}
-exp_file <- system.file("extdata", "GSE2034.normalized.expression.txt",
-    package="multiClust")
+#Subconjunto para SOM en una matriz.
+#som () solo funciona en matrices, NO en marcos de datos
+#subconjunto solo los valores de expresión génica escalados
+som.data <- as.matrix(data.val[,c(4:5)]) 
 
-# Load the gene expression matrix 
-data.exprs <- input_file(input=exp_file)
+# Establezca la semilla, solo asegúrese de mantener la misma.
+# Tiene que ver con el proceso de aleatorización.
+set.seed(2)
 
-# Call probe_ranking function
-# Select for 500 probes
-# Choose genes using the SD_Rank method
-ranked.exprs <- probe_ranking(input=exp_file,
-    probe_number=10, 
-    probe_num_selection="Fixed_Probe_Num",
-    data.exp=data.exprs, 
-    method="SD_Rank")
+# Aquí es donde cambia el tamaño del mapa
+grid.size <- ceiling(19 ^ (1/2.5))
+som.grid <- somgrid(xdim = grid.size, ydim = grid.size, topo = 'hexagonal', toroidal = T)
+som.model <- som(som.data, grid = som.grid)
+
+summary(som.model)
+
+plot(som.model, type ="changes")
+plot(som.model, type = "codes")
+plot(som.model, type = "counts")
 ```
 
 
-```{r}
-# Call the cluster_analysis function
-hclust_analysis <- cluster_analysis(sel.exp=ranked.exprs,
-    cluster_type="HClust",
-    distance="euclidean", linkage_type="ward.D2", 
-    gene_distance="correlation",
-    num_clusters=3, data_name="GSE2034 Breast", 
-    probe_rank="SD_Rank", probe_num_selection="Fixed_Probe_Num",
-    cluster_num_selection="Fixed_Clust_Num")
-```
+
 
