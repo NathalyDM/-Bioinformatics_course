@@ -1,0 +1,125 @@
+---
+title: "Ejercicio Práctico - THE USE AND ANALYSIS OF MICROARRAY DATA"
+author: "Dongo Mendoza, Nathaly"
+date: "13/6/2021"
+output: html_document
+---
+## Importar librerías
+```{r}
+library(GEOquery)
+library(Biobase)
+library(multiClust)
+library(preprocessCore)
+library(ctc)
+library(gplots)
+library(dendextend)
+library(graphics)
+library(grDevices)
+library(amap)
+library(survival)
+```
+
+```{r  include=FALSE}
+# Obtain GSE series matrix file from GEO website using getGEO function
+gse <- getGEO(GEO="GSE2034")
+    
+# Save the gene expression matrix as an object
+data.gse <- exprs(gse[[1]])
+    
+# Save the patient clinical data to an object
+pheno <- pData(phenoData(gse[[1]]))
+    
+# Write the gene expression and clinical data to text files
+WriteMatrixToFile(tmpMatrix=data.gse, tmpFileName="GSE2034.expression.txt",
+    blnRowNames=TRUE, blnColNames=TRUE)
+    
+WriteMatrixToFile(tmpMatrix=pheno, tmpFileName="GSE2034.clinical.txt",
+    blnRowNames=TRUE, blnColNames=TRUE)
+```
+
+
+```{r}
+# Quantile normalization of the dataset
+data.norm <- normalize.quantiles(data.gse, copy=FALSE)
+
+# Log2 scaling of the dataset
+data.log <- t(apply(data.norm, 1, log2))
+
+# Write the gene expression and clinical data to text files
+WriteMatrixToFile(tmpMatrix=data.log,
+    tmpFileName="GSE2034.normalized.expression.txt",
+    blnRowNames=TRUE, blnColNames=TRUE)
+```
+
+
+```{r}
+# Obtain clinical outcome file
+clin_file <- system.file("extdata", "GSE2034-RFS-clinical-outcome.txt",
+    package="multiClust")
+
+# Load in survival information file
+clinical <- read.delim2(file=clin_file, header=TRUE)
+
+# Display first few rows of the file
+clinical[1:5, 1:2]
+
+# Column one represents the survival time in months
+# Column two represents the relapse free survival (RFS) even
+```
+
+
+```{r}
+# Call the number_clusters function
+# data.exp is the original expression matrix object outputted from
+# the input_file function
+# User specifies that samples will be separated into 3 clusters 
+# with the "Fixed" argument
+cluster_num <- number_clusters(data.exp=data.exprs, Fixed=3,
+    gap_statistic=NULL)
+```
+
+```{r}
+# Obtain gene expression matrix
+exp_file <- system.file("extdata", "GSE2034.normalized.expression.txt", package= "multiClust")
+
+# Load the gene expression matrix 
+data.exprs <- input_file(input=exp_file)
+
+# Call the number_clusters function
+# data.exp is the original expression matrix object ouputted from
+# the input_file function
+# User chooses the gap_statistic option by making gap_statistic equal TRUE
+# The Fixed argument is also set to NULL
+cluster_num <- number_clusters(data.exp=data.exprs, Fixed=NULL,
+    gap_statistic=TRUE)
+```
+
+```{r}
+exp_file <- system.file("extdata", "GSE2034.normalized.expression.txt",
+    package="multiClust")
+
+# Load the gene expression matrix 
+data.exprs <- input_file(input=exp_file)
+
+# Call probe_ranking function
+# Select for 500 probes
+# Choose genes using the SD_Rank method
+ranked.exprs <- probe_ranking(input=exp_file,
+    probe_number=10, 
+    probe_num_selection="Fixed_Probe_Num",
+    data.exp=data.exprs, 
+    method="SD_Rank")
+```
+
+
+```{r}
+# Call the cluster_analysis function
+hclust_analysis <- cluster_analysis(sel.exp=ranked.exprs,
+    cluster_type="HClust",
+    distance="euclidean", linkage_type="ward.D2", 
+    gene_distance="correlation",
+    num_clusters=3, data_name="GSE2034 Breast", 
+    probe_rank="SD_Rank", probe_num_selection="Fixed_Probe_Num",
+    cluster_num_selection="Fixed_Clust_Num")
+```
+
